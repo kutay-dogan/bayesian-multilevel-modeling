@@ -1,7 +1,10 @@
 import marimo
 
 __generated_with = "0.25.2"
-app = marimo.App(width="medium", app_title="Hierarchical Bayesian Models and Partial Pooling II")
+app = marimo.App(
+    width="medium",
+    app_title="Hierarchical Bayesian Models and Partial Pooling II",
+)
 
 
 @app.cell
@@ -23,6 +26,7 @@ def _():
         head = "| " + " | ".join(df.columns) + " |\n|" + "---|" * len(df.columns) + "\n"
         body = "".join("| " + " | ".join(str(v) for v in row) + " |\n" for row in df.iter_rows())
         return mo.md(head + body)
+
     return (
         C_EXTRA,
         C_INK,
@@ -32,11 +36,11 @@ def _():
         C_POOL,
         alt,
         betaln,
+        md_table,
         minimize,
         mo,
         np,
         pl,
-        md_table,
         stats,
     )
 
@@ -54,8 +58,6 @@ def _(mo):
     - Shrinkage in a hierarchical beta–binomial model
     - Learning the amount of shrinkage with hyperpriors
     - Hierarchical Bayesian (multilevel) logistic regression
-
-    *Move the sliders: every chart is recomputed live.*
     """)
     return
 
@@ -75,44 +77,6 @@ def _(mo):
     - A looks better, but one extra dislike drops A to about 82%
     - Ranking by raw rates favours movies with **few votes**
     """)
-    return
-
-
-@app.cell
-def _(mo):
-    intro_n = mo.ui.slider(
-        steps=[3, 5, 10, 20, 50, 100, 200, 500, 1000], value=10, label="Votes $n$", show_value=True
-    )
-    intro_p = mo.ui.slider(0.05, 0.95, step=0.05, value=0.9, label="Observed approval rate", show_value=True)
-    return intro_n, intro_p
-
-
-@app.cell(hide_code=True)
-def _(C_MUT, C_NO, alt, intro_n, intro_p, mo, np, pl):
-    _ns = np.unique(np.round(np.logspace(np.log10(3), 3, 120)).astype(int))
-    _p = intro_p.value
-    _df = pl.DataFrame({"n": _ns, "half_width": 100 * 1.96 * np.sqrt(_p * (1 - _p) / _ns)})
-    _cur = pl.DataFrame({"n": [intro_n.value], "half_width": [100 * 1.96 * np.sqrt(_p * (1 - _p) / intro_n.value)]})
-    _line = alt.Chart(_df).mark_line(color=C_MUT, strokeWidth=2).encode(
-        x=alt.X("n:Q", scale=alt.Scale(type="log"), title="Number of votes n (log scale)"),
-        y=alt.Y("half_width:Q", title="± margin of the raw rate (percentage points)"),
-    )
-    _pt = alt.Chart(_cur).mark_point(color=C_NO, size=120, filled=True).encode(
-        x="n:Q", y="half_width:Q", tooltip=["n", alt.Tooltip("half_width:Q", format=".1f")]
-    )
-    _likes = round(_p * intro_n.value)
-    _after = 100 * _likes / (intro_n.value + 1)
-    mo.vstack([
-        mo.hstack([intro_n, intro_p], justify="start", gap=2),
-        mo.hstack([
-            (_line + _pt).properties(width=380, height=230, title="Few votes → wide uncertainty"),
-            mo.md(f"""
-    - 95% margin: **±{_cur['half_width'][0]:.1f} points**
-    - One extra dislike: {100*_likes/intro_n.value:.0f}% → **{_after:.1f}%**
-    - Margin shrinks like $1/\\sqrt{{n}}$
-    """),
-        ], align="center", justify="start", gap=2),
-    ])
     return
 
 
@@ -250,7 +214,7 @@ def _(mo):
 
 
 @app.cell(hide_code=True)
-def _(C_EXTRA, C_MUT, alt, mo, np, pl, pool_logk, pool_m):
+def _(C_EXTRA, C_MUT, alt, md_table, mo, np, pl, pool_logk, pool_m):
     _movies = {"A": (9, 10), "B": (800, 1000), "C": (35, 50), "D": (3, 5)}
     _lk = np.linspace(-1, 4, 200)
     _rows = []
@@ -324,7 +288,20 @@ def _(mo):
 
 
 @app.cell(hide_code=True)
-def _(C_MUT, C_NO, C_PART, alt, mo, np, pl, post_a, post_b, post_n, post_rate, stats):
+def _(
+    C_MUT,
+    C_NO,
+    C_PART,
+    alt,
+    mo,
+    np,
+    pl,
+    post_a,
+    post_b,
+    post_n,
+    post_rate,
+    stats,
+):
     _a, _b, _n = post_a.value, post_b.value, post_n.value
     _y = int(round(post_rate.value * _n))
     _x = np.linspace(0.001, 0.999, 400)
@@ -378,46 +355,6 @@ def _(mo):
     return
 
 
-@app.cell
-def _(mo):
-    bv_k = mo.ui.slider(steps=[1, 2, 5, 10, 20, 50, 100, 200], value=10, label="True $\\kappa$", show_value=True)
-    bv_n = mo.ui.slider(steps=[1, 3, 5, 10, 20, 50, 100, 500], value=10, label="Votes per movie $n$", show_value=True)
-    return bv_k, bv_n
-
-
-@app.cell(hide_code=True)
-def _(C_MUT, C_NO, C_PART, C_POOL, alt, bv_k, bv_n, mo, np, pl):
-    # expected squared error of w*p_hat + (1-w)*m when theta ~ Beta(m, kappa_true), for every assumed kappa
-    _m, _kt, _n = 0.7, bv_k.value, bv_n.value
-    _V = _m * (1 - _m) / (_kt + 1)                 # between-movie variance
-    _A = _m * (1 - _m) * _kt / ((_kt + 1) * _n)    # average sampling variance of p_hat
-    _ka = np.logspace(-2, 4, 300)
-    _w = _n / (_n + _ka)
-    _mse = _w**2 * _A + (1 - _w) ** 2 * _V
-    _df = pl.DataFrame({"kappa": _ka, "mse": _mse})
-    _best = _n / (_n + _kt)
-    _chart = (
-        alt.Chart(_df).mark_line(color=C_PART, strokeWidth=2.2).encode(
-            x=alt.X("kappa:Q", scale=alt.Scale(type="log"), title="κ used for shrinkage (log scale)"),
-            y=alt.Y("mse:Q", title="Expected squared error"),
-        )
-        + alt.Chart(pl.DataFrame({"y": [_A], "lab": ["No pooling"]})).mark_rule(color=C_NO, strokeDash=[4, 3]).encode(y="y:Q")
-        + alt.Chart(pl.DataFrame({"y": [_V], "lab": ["Complete pooling"]})).mark_rule(color=C_POOL, strokeDash=[6, 3]).encode(y="y:Q")
-        + alt.Chart(pl.DataFrame({"kappa": [_kt]})).mark_rule(color=C_MUT).encode(x="kappa:Q")
-    ).properties(width=430, height=240, title="Bias–variance trade-off (m = 0.7)")
-    mo.vstack([
-        mo.hstack([bv_k, bv_n], justify="start", gap=2),
-        mo.hstack([_chart, mo.md(f"""
-    - <span style="color:{C_NO}">**dashed orange**</span>: no pooling error = {_A:.4f}
-    - <span style="color:{C_POOL}">**dashed green**</span>: complete pooling error = {_V:.4f}
-    - Best κ = **true κ** (grey line), error = {_mse.min():.4f}
-    - Gain over no pooling: **{100*(1-_mse.min()/_A):.0f}%**
-    - Few votes → big gain · many votes → almost none
-    """)], align="center", justify="start", gap=2),
-    ])
-    return
-
-
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
@@ -442,7 +379,7 @@ def _(mo):
 
 
 @app.cell(hide_code=True)
-def _(C_EXTRA, C_MUT, alt, mo, np, pl, tab_a, tab_b):
+def _(C_MUT, alt, md_table, mo, np, pl, tab_a, tab_b):
     _y = np.array([9, 800, 35, 3]); _n = np.array([10, 1000, 50, 5])
     _a, _b = tab_a.value, tab_b.value
     _pp = _y.sum() / _n.sum(); _sp = np.sqrt(_pp * (1 - _pp) / _n.sum())
@@ -464,8 +401,7 @@ def _(C_EXTRA, C_MUT, alt, mo, np, pl, tab_a, tab_b):
         + alt.Chart(_arrows).mark_point(shape="triangle-right", size=110, filled=True, color="#2a78d6").encode(y="movie:N", x="post:Q")
         + alt.Chart(pl.DataFrame({"m": [_a / (_a + _b)]})).mark_rule(strokeDash=[2, 2], color=C_MUT).encode(x="m:Q")
     ).properties(width=380, height=170, title="Raw rate (orange) → posterior mean (blue)")
-    mo.vstack([mo.hstack([tab_a, tab_b], justify="start", gap=2), md_table(_tbl), _chart,
-               mo.md("Values in %, SE / posterior SD in parentheses. Default α=7, β=3 reproduces **Table 1** of the report.")])
+    mo.vstack([mo.hstack([tab_a, tab_b], justify="start", gap=2), md_table(_tbl), _chart])
     return
 
 
@@ -581,7 +517,18 @@ def _(mo):
 
 
 @app.cell
-def _(betaln, np, sim_j, sim_k, sim_m, sim_nmax, sim_rate, sim_seed, sim_shape, stats):
+def _(
+    betaln,
+    np,
+    sim_j,
+    sim_k,
+    sim_m,
+    sim_nmax,
+    sim_rate,
+    sim_seed,
+    sim_shape,
+    stats,
+):
     # identical random-number sequence to shrinkage_plot.py
     _rng = np.random.default_rng(int(sim_seed.value))
     sim_n = np.unique(np.round(np.exp(_rng.uniform(np.log(3), np.log(sim_nmax.value), sim_j.value))).astype(int))
@@ -602,13 +549,44 @@ def _(betaln, np, sim_j, sim_k, sim_m, sim_nmax, sim_rate, sim_seed, sim_shape, 
     sim_pool = sim_y.sum() / sim_n.sum()
     sim_mhat = float((_w * _A / (_A + _B)).sum())
     sim_khat = float((_w * (_A + _B)).sum())
-    return sim_khat, sim_mhat, sim_n, sim_pool, sim_post, sim_raw, sim_theta, sim_y
+    return (
+        sim_khat,
+        sim_mhat,
+        sim_n,
+        sim_pool,
+        sim_post,
+        sim_raw,
+        sim_theta,
+        sim_y,
+    )
 
 
 @app.cell(hide_code=True)
 def _(
-    C_MUT, C_NO, C_PART, C_POOL, alt, mo, np, pl, sim_j, sim_k, sim_khat, sim_m, sim_mhat, sim_n, sim_nmax,
-    sim_pool, sim_post, sim_rate, sim_raw, sim_seed, sim_shape, sim_theta, sim_y,
+    C_MUT,
+    C_NO,
+    C_PART,
+    C_POOL,
+    alt,
+    md_table,
+    mo,
+    np,
+    pl,
+    sim_j,
+    sim_k,
+    sim_khat,
+    sim_m,
+    sim_mhat,
+    sim_n,
+    sim_nmax,
+    sim_pool,
+    sim_post,
+    sim_rate,
+    sim_raw,
+    sim_seed,
+    sim_shape,
+    sim_theta,
+    sim_y,
 ):
     _df = pl.DataFrame({"n": sim_n, "y": sim_y, "raw": sim_raw, "post": sim_post, "true": sim_theta,
                         "log10n": np.log10(sim_n)})
@@ -772,7 +750,19 @@ def _(mo):
 
 
 @app.cell(hide_code=True)
-def _(C_INK, C_MUT, C_PART, alt, mo, np, pl, vs_mua, vs_mub, vs_rho, vs_taua, vs_taub):
+def _(
+    C_INK,
+    C_PART,
+    alt,
+    mo,
+    np,
+    pl,
+    vs_mua,
+    vs_mub,
+    vs_rho,
+    vs_taua,
+    vs_taub,
+):
     _ta, _tb, _r = vs_taua.value, vs_taub.value, vs_rho.value
     _S = np.array([[_ta**2, _r * _ta * _tb], [_r * _ta * _tb, _tb**2]])
     _ab = np.random.default_rng(7).multivariate_normal([vs_mua.value, vs_mub.value], _S, size=25)
@@ -840,7 +830,18 @@ def _(minimize, np):
         return minimize(nlp, np.zeros(2), method="BFGS").x
 
     reg_sep = np.array([_sep_fit(reg_x[reg_movie == j], reg_z[reg_movie == j]) for j in range(REG_J)])
-    return REG_J, REG_SEED, REG_TRUE, reg_a_true, reg_b_true, reg_movie, reg_n, reg_sep, reg_x, reg_z
+    return (
+        REG_J,
+        REG_SEED,
+        REG_TRUE,
+        reg_a_true,
+        reg_b_true,
+        reg_movie,
+        reg_n,
+        reg_sep,
+        reg_x,
+        reg_z,
+    )
 
 
 @app.cell
@@ -889,11 +890,25 @@ def _(np):
         w = s.var(axis=1, ddof=1).mean()
         b = h * s.mean(axis=1).var(ddof=1)
         return float(np.sqrt(((h - 1) / h * w + b / h) / w))
+
     return (split_rhat,)
 
 
 @app.cell(hide_code=True)
-def _(REG_TRUE, mo, np, pl, reg_a_true, reg_b_true, reg_div, reg_draws, reg_eff, reg_sep, split_rhat):
+def _(
+    REG_TRUE,
+    md_table,
+    mo,
+    np,
+    pl,
+    reg_a_true,
+    reg_b_true,
+    reg_div,
+    reg_draws,
+    reg_eff,
+    reg_sep,
+    split_rhat,
+):
     reg_a_hat = reg_eff[..., 0].reshape(-1, reg_eff.shape[2]).mean(0)
     reg_b_hat = reg_eff[..., 1].reshape(-1, reg_eff.shape[2]).mean(0)
     _rows = []
@@ -934,7 +949,21 @@ def _(REG_J, mo, reg_n):
 
 @app.cell(hide_code=True)
 def _(
-    C_EXTRA, C_INK, C_MUT, C_NO, C_PART, alt, mo, np, pl, reg_a_hat, reg_b_hat, reg_draws, reg_eff, reg_n, reg_pick,
+    C_EXTRA,
+    C_INK,
+    C_MUT,
+    C_NO,
+    C_PART,
+    alt,
+    mo,
+    np,
+    pl,
+    reg_a_hat,
+    reg_b_hat,
+    reg_draws,
+    reg_eff,
+    reg_n,
+    reg_pick,
     reg_sep,
 ):
     _ma, _mb = float(reg_draws["mu_a"].mean()), float(reg_draws["mu_b"].mean())
