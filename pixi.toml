@@ -1,0 +1,19 @@
+[workspace]
+authors = ["kutay-dogan <141006414+kutay-dogan@users.noreply.github.com>"]
+channels = ["conda-forge"]
+name = "bayesian-multilevel-modeling"
+platforms = ["osx-arm64", "win-64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+python = "3.11.*"
+numpy = ">=2.4.6,<3"
+altair = ">=6.3.0,<7"
+polars = ">=2.1.0,<3"
+scipy = ">=1.17.1,<2"
+pymc = ">=5.28.5,<6"
+
+[pypi-dependencies]
+marimo = ">=0.25.2, <0.26"

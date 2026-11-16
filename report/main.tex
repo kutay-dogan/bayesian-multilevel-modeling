@@ -1,0 +1,493 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb,mathtools,bm}
+\usepackage{booktabs,tabularx,array}
+\usepackage{graphicx}
+\usepackage{microtype}
+\usepackage{setspace}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage[font=small,labelfont=bf]{caption}
+\usepackage{enumitem}
+\setstretch{1.05}
+\setlength{\parindent}{1.3em}
+\setlength{\parskip}{0.12em}
+\setlength{\headheight}{15pt}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[R]{\small Hierarchical Bayesian Models and Partial Pooling}
+\fancyfoot[C]{\thepage}
+\hypersetup{colorlinks=true,linkcolor=black,citecolor=black,urlcolor=blue}
+\newcommand{\Normal}{\mathcal{N}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\Cov}{\operatorname{Cov}}
+\newcommand{\ind}{\perp\!\!\!\perp}
+\newcommand{\BetaD}{\operatorname{Beta}}
+\newcommand{\Bin}{\operatorname{Binomial}}
+\newcommand{\Gam}{\operatorname{Gamma}}
+\newcommand{\logit}{\operatorname{logit}}
+\newcommand{\Bern}{\operatorname{Bernoulli}}
+
+\title{\textbf{Hierarchical Bayesian Models and Partial Pooling II}\\[0.3em]
+\large Shrinkage Estimation and Bayesian Multilevel Regression}
+\author{Kutay Doğan \\ Yağmur Deniz Gülbaz}
+\date{16 November 2026}
+
+\AtBeginDocument{%
+  \setlength{\abovedisplayskip}{6pt}%
+  \setlength{\belowdisplayskip}{6pt}%
+  \setlength{\abovedisplayshortskip}{3pt}%
+  \setlength{\belowdisplayshortskip}{4pt}%
+}
+
+\begin{document}
+\maketitle
+\vspace{-1.7em}
+
+\begin{abstract}
+Hierarchical Bayesian models analyze data from related groups by giving each group its own parameters while connecting these parameters through a shared population distribution. A central consequence is \emph{shrinkage}: estimates for groups with little data are pulled toward a population value learned from all groups. This report develops shrinkage estimation using a hierarchical beta--binomial model for hypothetical movie likes and dislikes, and shows how hyperpriors allow the degree of shrinkage to be learned from the data. The same idea is then extended to hierarchical Bayesian regression with varying intercepts and slopes. Simulated examples illustrate both models, and posterior computation and limitations are discussed.
+\end{abstract}
+
+\section{Introduction}
+In this report, we analyse hierarchical Bayesian models and partial pooling, and illustrate with examples how the amount of available data affects the resulting estimates. Data are often grouped: ratings belong to movies, patients to hospitals, and repeated measurements to individuals. Groups differ, but they are usually related. Treating them as completely unrelated wastes information, while treating them as identical ignores real differences \cite{gelmanhill2007,gelmanetal2013}.
+
+Consider a movie platform that records whether viewers \emph{liked} or \emph{disliked} a film. Movie A receives 9 likes from 10 votes (90\%), and Movie B receives 800 likes from 1000 votes (80\%). Although Movie A has the higher rate, its estimate is far less reliable: a single additional dislike would lower it to about 82\%. Ranking movies by raw approval rates therefore favors movies with few votes.
+
+The hierarchical Bayesian approach offers a middle ground. Each movie has its own probability of being liked, but these probabilities come from a common population distribution that is estimated from all movies. As a result, noisy estimates are \emph{shrunk} toward the population mean, and the amount of shrinkage depends on how many votes a movie has and on how much movies differ from one another.
+
+This report first introduces a hierarchical beta--binomial model and derives its shrinkage estimator. It then treats the population parameters as unknown by assigning hyperpriors, and finally extends shrinkage to hierarchical Bayesian logistic regression.
+
+\section{A Hierarchical Beta--Binomial Model}
+\subsection{Binary Movie Ratings and Two Levels of Variation}
+
+Suppose we have $J$ movies. Each movie $j$ receives $n_j$ votes, of which $y_j$ are likes. Let $\theta_j$ be the unknown probability that a viewer likes movie $j$.
+
+For each movie, we use a Binomial likelihood:
+\begin{equation}
+Y_j \mid \theta_j \sim \Bin(n_j,\theta_j),
+\qquad j=1,\ldots,J.
+\label{eq:binomial}
+\end{equation}
+The Binomial model makes two assumptions: \emph{independence}, meaning that votes for the same movie are statistically independent given $\theta_j$, and a \emph{common probability}, meaning that every vote for movie $j$ has the same probability $\theta_j$ of being a like.
+
+Each movie has its own probability $\theta_j$, but these probabilities share the same Beta prior distribution:
+\begin{equation}
+\theta_j \mid \alpha,\beta
+\overset{\mathrm{iid}}{\sim} \BetaD(\alpha,\beta),
+\qquad \alpha,\beta>0.
+\label{eq:beta-group}
+\end{equation}
+The parameters $\alpha$ and $\beta$ are shared across all movies and control the shape of the Beta distribution. This does not mean all movies have the same probability of being liked. Instead, their probabilities are modeled as draws from the same distribution. This gives us one shared Beta distribution and $J$ Binomial likelihoods. Each movie has its own posterior distribution, while the shared parameters allow information to be pooled across movies. The Beta distribution is suitable because it is defined on $(0,1)$ and is conjugate to the Binomial likelihood.
+
+We can rewrite the Beta distribution's parameters $\alpha$ and
+$\beta$ using two quantities: the population mean $m$ and
+the concentration parameter $\kappa$:
+\begin{equation}
+m=\frac{\alpha}{\alpha+\beta},
+\qquad
+\kappa=\alpha+\beta.
+\label{eq:mean-concentration}
+\end{equation}
+The parameter $m$ represents the average probability of liking a movie across the population of movies. For example,
+if $\alpha=7$ and $\beta=3$, then $m=0.7$. In other words, if we randomly select a movie and then a viewer from the population represented by our model, the probability that the viewer likes the movie is 70\%.
+
+The parameter $\kappa$ controls how much movie approval probabilities vary around $m$. This can be seen from the variance of the Beta distribution: 
+\begin{equation}
+\E(\theta_j)=m,
+\qquad
+\Var(\theta_j)=\frac{m(1-m)}{\kappa+1}.
+\label{eq:beta-moments}
+\end{equation}
+A larger $\kappa$ means smaller variance, so movie approval probabilities tend to be closer to $m$. A smaller $\kappa$ means larger variance, allowing greater differences between movies. For example, consider $\BetaD(7,3)$ and $\BetaD(70,30)$. Both have a mean of $m=0.7$, but their concentration parameters are $\kappa=10$ and $\kappa=100$, respectively. The second distribution has a smaller variance, meaning movie approval probabilities are more likely to be close to 0.7. As we will see in the shrinkage section, $\kappa$ also determines how strongly individual movie estimates are pulled toward the population mean.
+
+\subsection{Exchangeability and Induced Dependence}
+
+The assumption in Equation~\eqref{eq:beta-group} is called \emph{conditional exchangeability}. Given $\alpha$ and $\beta$, changing the order or labels of movies does not change the joint distribution of their approval probabilities. This does not mean all movies have the same approval probability, only that they are modeled using the same Beta distribution before observing their votes \cite{gelmanetal2013}. Movie characteristics such as genre or release period may make this assumption unrealistic and can be included in an extended model.
+
+\paragraph{Induced Dependence.}
+
+Let $Z_{ij}\in\{0,1\}$ represent viewer $i$'s vote for movie $j$, where 1 indicates a like and 0 a dislike. Each vote follows a Bernoulli distribution:
+\begin{equation}
+Z_{ij}\mid\theta_j\sim\Bern(\theta_j).
+\end{equation}
+The sum of these votes gives the Binomial count $Y_j$. Votes are independent conditional on $\theta_j$, but observing one vote provides information about this shared unknown parameter.
+
+For example, after observing one like, the posterior distribution becomes
+\begin{equation}
+\theta_j\mid Z_{1j}=1,\alpha,\beta
+\sim\BetaD(\alpha+1,\beta).
+\end{equation}
+This posterior becomes the prior when considering the next vote, changing its predicted probability of being a like from $\alpha/(\alpha+\beta)$ to $(\alpha+1)/(\alpha+\beta+1)$. Thus, observing one vote changes our prediction for another vote. This relationship is called \emph{induced dependence}.
+
+\paragraph{Derivation of Covariance.}
+
+Consider two different viewers $i\ne i'$ voting on movie $j$. For this derivation, $\alpha$ and $\beta$ are treated as given; their uncertainty will be considered later when introducing hyperpriors.
+
+Recall that $\Cov(X,Y)=\E[XY]-\E[X]\E[Y]$. Since votes are independent conditional on $\theta_j$, we have $\E[Z_{ij}Z_{i'j}\mid\theta_j]=\theta_j^2$. Integrating over the Beta distribution gives:
+\begin{equation}
+\E[Z_{ij}Z_{i'j}\mid\alpha,\beta]
+=\int_0^1\theta_j^2 p(\theta_j\mid\alpha,\beta)\,d\theta_j
+=\E[\theta_j^2\mid\alpha,\beta].
+\end{equation}
+Since $\E[Z_{ij}\mid\alpha,\beta]=m$ for both viewers, the covariance becomes:
+\begin{equation}
+\Cov(Z_{ij},Z_{i'j}\mid\alpha,\beta)
+=\E[\theta_j^2\mid\alpha,\beta]-m^2
+=\Var(\theta_j\mid\alpha,\beta)
+=\frac{m(1-m)}{\kappa+1}.
+\label{eq:vote-covariance}
+\end{equation}
+Therefore, the covariance between two votes equals the variance of their shared unknown approval probability. This equation applies before observing either vote, conditional on $\alpha$ and $\beta$. After observing data $D$, the covariance between two future votes is instead $\Var(\theta_j\mid D)$.
+
+\paragraph{Correlation Between Votes.}
+
+Correlation is covariance divided by the product of the standard deviations. After integrating over $\theta_j$, each vote has variance $\Var(Z_{ij}\mid\alpha,\beta)=m(1-m)$. Therefore:
+\begin{equation}
+\operatorname{Corr}(Z_{ij},Z_{i'j}\mid\alpha,\beta)
+=\frac{\Cov(Z_{ij},Z_{i'j}\mid\alpha,\beta)}
+{\sqrt{\Var(Z_{ij}\mid\alpha,\beta)\,
+\Var(Z_{i'j}\mid\alpha,\beta)}}
+=\frac{m(1-m)/(\kappa+1)}{m(1-m)}
+=\frac{1}{\kappa+1}.
+\label{eq:vote-correlation}
+\end{equation}
+For two viewers voting on the same movie, a larger $\kappa$ results in weaker correlation, while a smaller $\kappa$ results in stronger correlation. Although their votes are independent given $\theta_j$, they become dependent when we account for uncertainty about this shared probability.
+
+\section{Pooling Strategies}
+\label{sec:pooling}
+Shrinkage is easiest to understand as a compromise between two simpler strategies \cite{gelmanhill2007}. \emph{Complete pooling} assumes that all movies share one approval probability,
+\begin{equation}
+Y_j\mid\theta\sim\Bin(n_j,\theta),\qquad
+\widehat\theta_{\text{pool}}=\frac{\sum_j y_j}{\sum_j n_j},
+\label{eq:complete-pooling}
+\end{equation}
+which ignores real differences between movies and reports overconfident uncertainty for each one. \emph{No pooling} estimates every movie separately by $\widehat p_j=y_j/n_j$. It is unbiased, but its variance $\theta_j(1-\theta_j)/n_j$ is large for movies with few votes, so a movie with one like out of one vote is estimated at 100\%. \emph{Partial pooling} gives each movie its own probability but connects the probabilities through the shared distribution of Section~2:
+\begin{equation}
+Y_j\mid\theta_j\sim\Bin(n_j,\theta_j),
+\qquad
+\theta_j\mid\alpha,\beta\sim\BetaD(\alpha,\beta).
+\label{eq:partial-pooling}
+\end{equation}
+The concentration $\kappa=\alpha+\beta$ links the three strategies. As $\kappa\to\infty$, $\Var(\theta_j)\to0$ and every movie receives the population mean (complete pooling); as $\kappa\to0$, the population distribution carries no information and each movie keeps its raw proportion (no pooling). The hierarchical model therefore contains both strategies as limiting cases, and when $\alpha$ and $\beta$ are estimated, the data decide where between them the analysis lies. The rest of this report studies the resulting adjustment of each estimate, \emph{shrinkage}, and carries it into regression.
+
+\section{Shrinkage Estimation in the Beta--Binomial Model}
+\label{sec:shrinkage}
+
+Shrinkage estimation adjusts group-specific estimates toward a common reference value. In our Beta--Binomial model, this reference is the mean of the shared Beta prior, $m=\alpha/(\alpha+\beta)$. All movies share the same concentration parameter $\kappa=\alpha+\beta$, but the amount of shrinkage differs depending on the number of votes each movie receives. Movies with fewer votes experience stronger shrinkage toward $m$.
+
+\subsection{Conditional posterior derivation}
+To obtain an explicit shrinkage formula, temporarily treat $\alpha$ and $\beta$ as fixed. For one movie, the binomial likelihood and Beta prior yield
+\begin{align}
+ p(\theta_j\mid y_j,n_j,\alpha,\beta)
+ &\propto \theta_j^{y_j}(1-\theta_j)^{n_j-y_j}
+ \theta_j^{\alpha-1}(1-\theta_j)^{\beta-1}\\
+ &\propto\theta_j^{\alpha+y_j-1}
+ (1-\theta_j)^{\beta+n_j-y_j-1}.
+\end{align}
+Recognizing the kernel of a Beta distribution gives
+\begin{equation}
+ \boxed{\theta_j\mid y_j,n_j,\alpha,\beta
+ \sim\BetaD(\alpha+y_j,\beta+n_j-y_j).}
+ \label{eq:conditional-posterior}
+\end{equation}
+The posterior mean, which is the Bayes estimator under squared-error loss, is
+\begin{equation}
+ \E(\theta_j\mid y_j,n_j,\alpha,\beta)
+ =\frac{y_j+\alpha}{n_j+\alpha+\beta}.
+ \label{eq:posterior-mean}
+\end{equation}
+To make shrinkage explicit, write $\widehat p_j=y_j/n_j$ for $n_j>0$, $m=\alpha/(\alpha+\beta)$, and $\kappa=\alpha+\beta$. Algebra then gives
+\begin{equation}
+ \boxed{\E(\theta_j\mid y_j,n_j,\alpha,\beta)
+ =w_j\widehat p_j+(1-w_j)m,\qquad
+ w_j=\frac{n_j}{n_j+\kappa}.}
+ \label{eq:shrinkage}
+\end{equation}
+The estimate is a weighted average of the observed approval rate and the shared population mean. This is the beta--binomial shrinkage formula. The corresponding shrinkage factor is
+\begin{equation}
+ B_j=1-w_j=\frac{\kappa}{n_j+\kappa},\qquad
+ \E(\theta_j\mid\cdot)=\widehat p_j-B_j(\widehat p_j-m).
+ \label{eq:shrinkage-factor}
+\end{equation}
+If a movie's observed rate exceeds $m$, shrinkage moves its estimate downward; if its rate is below $m$, shrinkage moves it upward. Shrinkage is therefore a movement toward the population mean, not simply a penalty for receiving high ratings.
+
+\subsection{What controls the amount of shrinkage?}
+Equation~\eqref{eq:shrinkage} separates the influence of sample size and the shared distribution. If $n_j$ increases while $\kappa$ is fixed, $w_j$ approaches one and the movie's observed proportion dominates. If $n_j$ is small relative to $\kappa$, the shared mean receives more weight. Moreover, larger $\kappa$ means movie probabilities are more tightly concentrated around $m$, so the model favors stronger pooling. For small $\kappa$, the distribution permits substantial movie-to-movie heterogeneity and pooling is weaker.
+
+The parameter $\kappa$ is sometimes called a \emph{prior effective sample size}. This description follows from the posterior parameters $\alpha+y_j$ and $\beta+n_j-y_j$: the Beta distribution contributes $\alpha$ and $\beta$ to the two vote counts. However, these are mathematical pseudo-counts rather than actual recorded votes, and the effective-sample-size interpretation is conditional on the particular beta--binomial specification.
+
+Conditional posterior uncertainty also has a closed form. With $a_j=\alpha+y_j$ and $b_j=\beta+n_j-y_j$,
+\begin{equation}
+ \Var(\theta_j\mid y_j,n_j,\alpha,\beta)
+ =\frac{a_jb_j}{(a_j+b_j)^2(a_j+b_j+1)}.
+ \label{eq:conditional-var}
+\end{equation}
+This variance typically decreases as the number of votes rises. Yet the formula assumes the shared parameters are known. A full Bayesian model must also account for the uncertainty about $\alpha$ and $\beta$; it will not, in general, have this simple Beta posterior marginally.
+
+Shrinkage introduces a small bias, because each estimate is pulled toward the population mean, but in return it greatly reduces the variance of estimates based on few votes. For movies with many votes the adjustment is negligible, so little is lost. When many movies are estimated together, this trade usually lowers the total estimation error compared with estimating each movie separately, a result known as the James--Stein phenomenon \cite{efronmorris1975}.
+
+\subsection{A numerical movie example}
+Table~\ref{tab:pooling-compare} illustrates the conditional shrinkage formula using four hypothetical movies. To make the arithmetic transparent, suppose for this calculation only that $\alpha=7$ and $\beta=3$. Then $m=0.7$ and $\kappa=10$. These are \emph{illustrative values, not estimates from the data}; the next section removes the assumption that they are known. For comparison, the table also shows the complete-pooling and no-pooling estimates of Section~\ref{sec:pooling}.
+
+\begin{table}[htbp]
+\centering
+\caption{Estimated approval (\%) with standard error or posterior standard deviation in parentheses (percentage points) under the three strategies. The shrinkage weights and the partial-pooling column use the illustrative $\BetaD(7,3)$ population distribution.}
+\label{tab:pooling-compare}
+\begin{tabular}{lrrcccc}
+\toprule
+ & & & & \multicolumn{3}{c}{Pooling strategy}\\
+\cmidrule(lr){5-7}
+Movie & $y_j$ & $n_j$ & Weight $w_j$ & Complete & None & Partial \\
+\midrule
+A & 9 & 10 & 0.500 & 79.5 (1.2) & 90.0 (9.5) & 80.0 (8.7) \\
+B & 800 & 1000 & 0.990 & 79.5 (1.2) & 80.0 (1.3) & 79.9 (1.3) \\
+C & 35 & 50 & 0.833 & 79.5 (1.2) & 70.0 (6.5) & 70.0 (5.9) \\
+D & 3 & 5 & 0.333 & 79.5 (1.2) & 60.0 (21.9) & 66.7 (11.8) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+For Movie A, $w_A=10/(10+10)=0.5$. Hence
+\begin{equation}
+ \E(\theta_A\mid y_A,\alpha=7,\beta=3)
+ =0.5(0.90)+0.5(0.70)=0.80.
+\end{equation}
+Movie B receives almost no adjustment: $w_B=1000/1010\approx0.990$, giving $(800+7)/1010\approx0.799$. Movie D is adjusted upward from 0.60 to $(3+7)/(5+10)=2/3$. Movie C does not move because its observed rate already equals the shared mean. Shrinkage also reduces uncertainty: Movie D's standard deviation falls from about 22 to 12 percentage points, because the population distribution supplies information that its five votes cannot. Complete pooling reports an even smaller uncertainty of 1.2 points for every movie, but that precision is spurious, since it ignores between-movie variation.
+
+\section{Hyperpriors}
+\label{sec:hyperpriors}
+\subsection{Why estimate the shared parameters?}
+The previous example fixed $\alpha=7$ and $\beta=3$ without evidence, imposing a population mean of 70\% and a concentration of ten whether or not they fit the data. The Bayesian solution is to regard $\alpha$ and $\beta$ as additional unknown parameters and assign them distributions. Because these are parameters of the movie-level prior, their distributions are called \emph{hyperpriors}. They add a further layer of uncertainty rather than fixing the amount of pooling. One simple, illustrative specification uses Gamma distributions in shape--rate notation:
+\begin{equation}
+ \boxed{\begin{aligned}
+ Y_j\mid\theta_j&\sim\Bin(n_j,\theta_j),\\
+ \theta_j\mid\alpha,\beta&\sim\BetaD(\alpha,\beta),\\
+ \alpha&\sim\Gam(a_\alpha,b_\alpha),\\
+ \beta&\sim\Gam(a_\beta,b_\beta).
+ \end{aligned}}
+ \label{eq:full-hierarchy}
+\end{equation}
+In our examples we use $a_\alpha=a_\beta=2$ and $b_\alpha=b_\beta=1$, that is, $\alpha,\beta\sim\Gam(2,1)$. The Gamma distribution is a natural choice because $\alpha$ and $\beta$ must be positive, although other distributions on positive values could also be used. This choice is not neutral: both parameters have prior mean 2, so before seeing any data the model expects an average approval rate near 50\% and a small concentration ($\kappa\approx4$), which implies large differences between movies and therefore weak shrinkage. Whether such assumptions are reasonable should be checked against what is plausible for the application.
+
+In the parameterization of Equation~\eqref{eq:mean-concentration}, the hyperpriors jointly induce uncertainty about $m$ (the mean approval probability) and $\kappa$ (the degree of pooling). Because $\alpha$ and $\beta$ are unknown, the mean $m$ and the concentration $\kappa$ are learned from all movies together. If the movies have similar approval rates, the data favour a large $\kappa$ and therefore strong shrinkage; if their approval rates differ widely, the data favour a small $\kappa$ and weaker shrinkage.
+
+\subsection{Joint and marginal posteriors}
+The joint posterior is, up to proportionality,
+\begin{equation}
+ p(\bm\theta,\alpha,\beta\mid\bm y,\bm n)
+ \propto p(\alpha)p(\beta)
+ \prod_{j=1}^{J}\!\left[
+ p(y_j\mid n_j,\theta_j)p(\theta_j\mid\alpha,\beta)
+ \right].
+ \label{eq:joint-posterior}
+\end{equation}
+Integrating out the individual probabilities using the beta--binomial likelihood gives
+\begin{equation}
+ p(\alpha,\beta\mid\bm y,\bm n)
+ \propto p(\alpha)p(\beta)
+ \prod_{j=1}^{J}
+ \frac{B(\alpha+y_j,\beta+n_j-y_j)}{B(\alpha,\beta)}.
+ \label{eq:hyper-posterior}
+\end{equation}
+The binomial coefficients have been omitted in Equation~\eqref{eq:hyper-posterior} because they do not depend on $\alpha$ or $\beta$. Conditional on a particular pair $\alpha,\beta$, the posterior for each $\theta_j$ remains Beta, as in Equation~\eqref{eq:conditional-posterior}. Marginally, however, the uncertainty in $\alpha,\beta$ must be integrated out:
+\begin{equation}
+ \E(\theta_j\mid\bm y,\bm n)
+ =\E_{\alpha,\beta\mid\bm y,\bm n}
+ \left[\frac{y_j+\alpha}{n_j+\alpha+\beta}\right].
+ \label{eq:full-posterior-mean}
+\end{equation}
+This is the fully Bayesian shrinkage estimator. It averages the conditional estimator over the \emph{posterior} distribution of the population parameters, rather than substituting one arbitrarily chosen Beta prior. Because the weight $n_j/(n_j+\alpha+\beta)$ now varies over posterior draws, a single fixed shrinkage weight does not generally summarize the entire result.
+
+\subsection{Empirical Bayes versus full Bayes}
+\emph{Empirical Bayes} instead estimates $\alpha$ and $\beta$ by maximizing the marginal beta--binomial likelihood and plugs the estimates into the conditional Beta posteriors. This is simpler and still gives data-adaptive shrinkage, but it ignores uncertainty in the fitted population parameters, which full Bayes retains through Equation~\eqref{eq:hyper-posterior}. The distinction matters when the number of movies is small, when many movies have few votes, or when the data provide weak information about concentration $\kappa$. In such settings, the choice of hyperprior can materially affect the resulting degree of pooling. Careful prior predictive checks and sensitivity analyses are therefore important, not optional decorations \cite{gelman2006,gelmanetal2013}.
+
+\subsection{Shrinkage across many movies}
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.84\textwidth]{shrinkage_plot.png}
+\caption{Fully Bayesian shrinkage for 28 simulated movies ($\theta_j\sim\BetaD(7,3)$, 3 to about 1200 votes). Partial-pooling estimates are fully Bayesian posterior means (Equation~\eqref{eq:full-posterior-mean}) under Gamma(2,1) hyperpriors, computed on a grid of $(\alpha,\beta)$ values. (a)~Arrows show how far each raw rate moves. (b)~Estimates lie between the no-pooling diagonal and the complete-pooling line.}
+\label{fig:shrinkage}
+\end{figure}
+
+We generated synthetic data for 28 movies by drawing each true approval probability $\theta_j$ from a $\BetaD(7,3)$ distribution, drawing the number of votes $n_j$ log-uniformly between 3 and 1500, and simulating the number of likes as $y_j\sim\Bin(n_j,\theta_j)$. Figure~\ref{fig:shrinkage} applies the fully Bayesian estimator of Equation~\eqref{eq:full-posterior-mean} to a simulated collection of movies, with complete and no pooling shown for reference. In panel~(a), the movie with 1 like out of 3 votes moves from 33\% to about 55\%, and the movie with 9 likes out of 9 moves from 100\% to about 88\%. Movies with more than a few hundred votes barely move at all. The estimates are pulled toward the estimated population mean $m\approx0.67$ (dotted line), not toward the complete-pooling proportion of 0.61 (dashed line). This happens because the complete-pooling proportion weights every vote equally and is dominated by two heavily voted movies with low approval rates, whereas $m$ is the mean of the population distribution and counts each movie once. In panel~(b), well-informed (dark) points stay near the no-pooling diagonal, while light points move clearly toward the center. The mean squared error against the true $\theta_j$ is $0.034$ for complete, $0.009$ for no, and $0.004$ for partial pooling.
+
+The posterior mean of $\kappa$ is about 5, below the generating value of 10: with only 28 movies, the Gamma(2,1) hyperpriors, which favor small $\alpha$ and $\beta$, visibly weaken the pooling (see Section~\ref{sec:limitations}).
+
+\section{Hierarchical Bayesian Regression}
+\label{sec:regression}
+\subsection{Shrinkage in a normal hierarchical model}
+Before turning to binary votes, the normal case shows how shrinkage appears in regression-type models. Suppose $\bar y_j$ is the average of $n_j$ observations from group $j$, each with within-group variance $\sigma^2$, and the group means share a normal distribution:
+\begin{equation}
+ \bar y_j\mid\mu_j\sim\Normal(\mu_j,\sigma^2/n_j),\qquad
+ \mu_j\mid\mu,\tau\sim\Normal(\mu,\tau^2).
+ \label{eq:normal-normal}
+\end{equation}
+Conditional on $\mu$, $\sigma^2$, and the between-group variance $\tau^2$, the posterior mean of $\mu_j$ is
+\begin{equation}
+ \E(\mu_j\mid\bar y_j,\mu,\sigma,\tau)
+ =w_j\bar y_j+(1-w_j)\mu,\qquad
+ w_j=\frac{n_j}{n_j+\sigma^2/\tau^2}.
+ \label{eq:normal-shrinkage}
+\end{equation}
+This has exactly the form of Equation~\eqref{eq:shrinkage}, with the variance ratio $\sigma^2/\tau^2$ playing the role of $\kappa$. In a full Bayesian analysis, $\mu$, $\sigma$, and $\tau$ receive priors, so the amount of shrinkage is learned from the data as in Section~\ref{sec:hyperpriors}; priors on $\tau$ need care when there are few groups \cite{gelman2006}. Such group-level parameters are often called varying or multilevel effects \cite{gelmanhill2007}.
+
+\subsection{From movie proportions to logistic regression}
+The beta--binomial model estimates a probability for each movie but does not directly explain how viewer or movie characteristics change approval. To introduce predictors, it is natural to model individual votes $Z_{ij}\in\{0,1\}$ using logistic regression. Let $x_{ij}$ be a centered viewer-level predictor, such as the viewer's preference for the movie's genre. A varying-intercept logistic model is
+\begin{align}
+ Z_{ij}\mid p_{ij}&\sim\Bern(p_{ij}),\label{eq:logistic-likelihood}\\
+ \logit(p_{ij})&=a_j+b\,x_{ij},\label{eq:logistic-eta}\\
+ a_j\mid\mu_a,\lambda_a&\sim\Normal(\mu_a,\lambda_a^{-1}).
+ \label{eq:logistic-hierarchy}
+\end{align}
+Here $a_j$ is movie $j$'s baseline log-odds of receiving a like and $b$ is the shared association between the predictor and approval. Because the movie intercepts follow one shared distribution, they are partially pooled. A movie with limited voting information tends to have its intercept regularized toward $\mu_a$, while one with substantial informative data can depart further from that mean.
+
+The quantity $\lambda_a=1/\tau_a^2$ is the \emph{between-movie precision}, the reciprocal of the intercept variance. A Gamma prior is convenient for keeping it positive:
+\begin{equation}
+ \mu_a\sim\Normal(m_a,s_a^2),\qquad
+ b\sim\Normal(0,s_b^2),\qquad
+ \lambda_a\sim\Gam(c_a,d_a).
+ \label{eq:regression-hyperpriors}
+\end{equation}
+As in Section~\ref{sec:hyperpriors}, no prior here is automatically weak; its scale should be judged against the covariate scale and plausible odds ratios.
+
+Crucially, hierarchical logistic regression is \emph{not} the same conjugate beta--binomial model once predictors are introduced. Both share partial pooling and binary observations, but the movie intercepts in Equation~\eqref{eq:logistic-hierarchy} are normal on the \emph{log-odds} scale rather than Beta-distributed on the probability scale. Therefore, the simple weighted-average formula in Equation~\eqref{eq:shrinkage} does not carry over exactly.
+
+\subsection{Movie-level predictors and varying slopes}
+Suppose movie duration $d_j$ is standardized and $g_j$ is a genre indicator, and write $\bm z_j=(d_j,g_j)$. Movie-level characteristics can enter the intercept distribution:
+\begin{equation}
+ a_j\mid\bm z_j,\bm\gamma,\lambda_a
+ \sim\Normal(\gamma_0+\gamma_1d_j+\gamma_2g_j,\lambda_a^{-1}).
+ \label{eq:movie-predictors}
+\end{equation}
+Now movies are partially pooled toward a \emph{conditional} mean determined by their observed features, instead of one shared intercept for all movies. The coefficient $\gamma_1$ represents the between-movie association between duration and baseline log-odds of a like, adjusted for genre. It should not be interpreted causally without a suitable design and assumptions. The same idea extends to other groupings: because many reviewers vote on many movies, a reviewer effect $r_u\sim\Normal(0,\tau_r^2)$ can be added to the linear predictor, so that a movie's approval is estimated after accounting for each reviewer's general tendency to like films.
+
+The effect of a viewer characteristic may also differ across movies. For example, viewers who prefer science fiction may respond more positively to some science-fiction films than to others. A varying-intercept, varying-slope model is
+\begin{align}
+ \logit(p_{ij})&=a_j+b_jx_{ij},\label{eq:varying-slopes}\\
+ \begin{pmatrix}a_j\\b_j\end{pmatrix}
+ &\sim\Normal_2\!\left(
+ \begin{pmatrix}\mu_a\\\mu_b\end{pmatrix},
+ \bm\Sigma\right),\label{eq:bivariate-effects}
+\end{align}
+with the covariance matrix
+\begin{equation}
+ \bm\Sigma=\begin{pmatrix}
+ \tau_a^2&\rho\tau_a\tau_b\\
+ \rho\tau_a\tau_b&\tau_b^2
+ \end{pmatrix},\qquad -1<\rho<1.
+ \label{eq:covariance}
+\end{equation}
+The standard deviations $\tau_a,\tau_b$ govern between-movie variation in intercepts and slopes; $\rho$ represents their correlation. The data can partially pool both intercepts and slopes, but estimating slope variation requires sufficient variation in $x_{ij}$ within movies.
+
+In a full Bayesian analysis, the population-level parameters also receive priors: the average intercept and slope ($\mu_a,\mu_b$), how much intercepts and slopes vary between movies ($\tau_a,\tau_b$), and how strongly they are related ($\rho$). These priors matter because $\tau_a$ and $\tau_b$ control how much the movie-level coefficients are shrunk. In practice, mild priors are usually chosen that keep these quantities in a plausible range, for example priors that favour moderate between-movie variation \cite{gelman2006} and correlations that are not extreme \cite{lkj2009}.
+
+\subsection{A simulated multilevel regression example}
+\label{sec:reg-example}
+To see shrinkage in a regression, we simulated votes for $J=24$ movies with between 5 and 346 votes each (2068 votes in total). The true intercepts and slopes were drawn from Equation~\eqref{eq:bivariate-effects} with $\mu_a=0.8$, $\mu_b=0.7$, $\tau_a=0.7$, $\tau_b=0.4$, and $\rho=-0.4$, and the predictor was $x_{ij}\sim\Normal(0,1)$. The varying-intercept, varying-slope model was fitted in PyMC \cite{pymc2023} with priors $\mu_a\sim\Normal(0,1.5^2)$, $\mu_b\sim\Normal(0,1)$, $\tau_a,\tau_b\sim\text{Half-Normal}(1)$, and an LKJ(2) prior on the correlation, using the non-centered form of Equation~\eqref{eq:noncentered}. For comparison, a separate logistic regression was fitted to each movie (no pooling), with only weak $\Normal(0,5^2)$ priors to keep the estimates finite.
+
+\begin{table}[h!]
+\centering
+\caption{Population-level parameters of the simulated multilevel logistic regression: true values and posterior summaries (4 chains, 2000 draws each).}
+\label{tab:reg-hyper}
+\begin{tabular}{lrrrc}
+\toprule
+Parameter & True value & Posterior mean & Posterior SD & 95\% HDI \\
+\midrule
+$\mu_a$ (mean intercept) & 0.80 & 0.85 & 0.19 & $[0.45,\ 1.20]$ \\
+$\mu_b$ (mean slope) & 0.70 & 0.72 & 0.11 & $[0.49,\ 0.94]$ \\
+$\tau_a$ (SD of intercepts) & 0.70 & 0.87 & 0.15 & $[0.60,\ 1.20]$ \\
+$\tau_b$ (SD of slopes) & 0.40 & 0.37 & 0.11 & $[0.16,\ 0.59]$ \\
+$\rho$ (correlation) & $-0.40$ & $-0.54$ & 0.23 & $[-0.91,\ -0.08]$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.84\textwidth]{multilevel_plot.png}
+\caption{Simulated multilevel logistic regression for 24 movies. (a)~Separate (no-pooling) estimates of $(a_j,b_j)$ and their partial-pooling posterior means; point size grows with $n_j$, and the ellipses are the 50\% and 90\% contours of the estimated population distribution. (b)~Predicted probability of a like for three movies under both approaches, with the population curve $\logit^{-1}(\mu_a+\mu_b x)$.}
+\label{fig:multilevel}
+\end{figure}
+
+Table~\ref{tab:reg-hyper} shows that all five population parameters are recovered within their 95\% intervals. Figure~\ref{fig:multilevel}(a) shows the shrinkage of the movie-level coefficients. Separate fits for movies with few votes are scattered far from the center, and partial pooling pulls them toward the population mean. Movie~1, with 5 votes, moves from $(-0.25,\,1.54)$ to $(0.46,\,0.85)$. Large movies barely move. Because intercepts and slopes are negatively correlated ($\widehat\rho\approx-0.54$), estimates are pulled along the tilted ellipse rather than straight toward the center: a movie's intercept carries information about its slope. Panel~(b) translates this to the probability scale. For Movie~24 (346 votes) the two curves almost coincide, whereas for Movies~1 and~7 the partial-pooling curves are less extreme and closer to the population curve. For simplicity these curves use the posterior means of $a_j$ and $b_j$; when reporting predicted probabilities, one should instead compute the probability for each posterior draw and then average, because the logit link is nonlinear. For a new movie with no votes, the same approach would draw its intercept and slope from the estimated population distribution, which gives wider predictive uncertainty than for a movie already in the data.
+
+Against the true values, partial pooling halves the mean squared error of the intercepts (0.096 versus 0.207 for no pooling and 0.578 for complete pooling). For the slopes, however, it is not better in this dataset (0.110 versus 0.094). The main reason is Movie~13, whose true slope of 2.31 is unusually steep. Its 48 votes estimate it well (2.50), but partial pooling pulls it down to 1.37. Shrinkage improves accuracy on average across groups and datasets, not for every parameter in every dataset, and it can overshrink groups that are genuinely unusual.
+
+\section{Posterior Computation and Assessment}
+With fixed $\alpha$ and $\beta$, the beta--binomial posterior is available analytically, but Gamma hyperpriors do not give a conjugate posterior for $(\alpha,\beta)$. Because only two hyperparameters remain after integrating out the $\theta_j$ in Equation~\eqref{eq:hyper-posterior}, the posterior can be evaluated on a grid, as in Figure~\ref{fig:shrinkage}, or sampled with Markov chain Monte Carlo (MCMC), after which each $\theta_j$ is drawn from its conditional Beta posterior. Hierarchical logistic regression has many correlated group effects and a nonlinear link, and is usually fitted with Hamiltonian Monte Carlo and its adaptive No-U-Turn Sampler (NUTS) \cite{hoffmangelman2014}. When groups carry little information, the non-centered parameterization
+\begin{equation}
+ q_j\sim\Normal(0,1),\qquad a_j=\mu_a+\tau_a q_j
+ \label{eq:noncentered}
+\end{equation}
+often improves sampling. Convergence should be checked with multiple chains, rank-normalized $\widehat R$, effective sample sizes, and divergence warnings; convergence only shows that the specified model was computed accurately, not that it is correct. For the example of Section~\ref{sec:reg-example}, four chains of 2000 draws after 2000 warm-up iterations produced no divergences, a maximum $\widehat R$ of 1.00, and a minimum bulk effective sample size of about 2300.
+
+Model adequacy is assessed with posterior predictive checks, which compare features of the observed votes, such as the spread of approval rates among small-sample movies, with data simulated from the posterior. Predictive accuracy can be compared with leave-one-out cross-validation \cite{vehtarietal2017}; leaving out single votes tests prediction for known movies, while leaving out whole movies tests generalization to new titles.
+
+\section{Limitations and Discussion}
+\label{sec:limitations}
+The binary outcome gives a clear likelihood and a conjugate shrinkage formula, but it discards the difference between moderately and extremely positive ratings; an ordinal hierarchical model could keep a 1--10 scale while applying the same shrinkage principle.
+
+The binomial component also assumes that votes are independent given $\theta_j$. Real users choose which movies to watch and review and may be influenced by advertising or coordinated campaigns; partial pooling does not correct such selection biases, so $\theta_j$ describes the voting population rather than an objective measure of film quality.
+
+Exchangeability is another substantive assumption. A single population distribution may overshrink movies that are genuinely different, such as films with sharply distinct audience niches, as Movie~13 in Section~\ref{sec:reg-example} showed for slopes. Group-level predictors, genre-specific populations, or richer hierarchical distributions may be needed. In addition, the Gamma hyperpriors used for $\alpha$ and $\beta$ can materially affect inferred concentration and hence shrinkage when the number of movies is small. The symmetric choice $\Gam(2,1)$ for both parameters is merely an illustration; it is not automatically noninformative, and in the simulation of Figure~\ref{fig:shrinkage} it pulled the estimated concentration below its generating value. Sensitivity analyses should compare reasonable alternative hyperpriors and examine their prior predictive implications.
+
+The conceptual distinctions are important. \emph{Hierarchy} describes how movie-specific parameters are related; \emph{partial pooling} describes information sharing across movies; \emph{shrinkage} describes the resulting adjustment of estimates.
+
+\section{Conclusion}
+In this report we studied shrinkage estimation and hierarchical Bayesian regression. Using a beta--binomial model for movie likes, we showed that each movie's estimate is a compromise between its own data and the population average, and that movies with few votes are adjusted the most. We then let the data determine the strength of this adjustment through hyperpriors, and extended the same idea to hierarchical logistic regression with varying intercepts and slopes. Two simulations showed that shrinkage generally improves accuracy, but can pull genuinely unusual movies too far. Careful choice of priors, reliable computation, and model checking remain essential when these models are used in practice.
+
+\newpage
+\begingroup
+\small
+\setstretch{1.0}
+\begin{thebibliography}{99}
+\setlength{\itemsep}{0.15em}
+\bibitem{efronmorris1975}
+Efron, B., and Morris, C. (1975).
+Data analysis using Stein's estimator and its generalizations.
+\emph{Journal of the American Statistical Association}, 70(350), 311--319.
+\url{https://doi.org/10.1080/01621459.1975.10479864}
+
+\bibitem{gelmanetal2013}
+Gelman, A., Carlin, J. B., Stern, H. S., Dunson, D. B., Vehtari, A., and Rubin, D. B. (2013).
+\emph{Bayesian Data Analysis} (3rd ed.). CRC Press.
+
+\bibitem{gelmanhill2007}
+Gelman, A., and Hill, J. (2007).
+\emph{Data Analysis Using Regression and Multilevel/Hierarchical Models}.
+Cambridge University Press. \url{https://doi.org/10.1017/CBO9780511790942}
+
+\bibitem{gelman2006}
+Gelman, A. (2006). Prior distributions for variance parameters in hierarchical models.
+\emph{Bayesian Analysis}, 1(3), 515--533.
+\url{https://doi.org/10.1214/06-BA117A}
+
+\bibitem{lkj2009}
+Lewandowski, D., Kurowicka, D., and Joe, H. (2009).
+Generating random correlation matrices based on vines and extended onion method.
+\emph{Journal of Multivariate Analysis}, 100(9), 1989--2001.
+
+\bibitem{pymc2023}
+Abril-Pla, O., et al. (2023).
+PyMC: A modern and comprehensive probabilistic programming framework in Python.
+\emph{PeerJ Computer Science}, 9, e1516.
+
+\bibitem{hoffmangelman2014}
+Hoffman, M. D., and Gelman, A. (2014).
+The No-U-Turn sampler: Adaptively setting path lengths in Hamiltonian Monte Carlo.
+\emph{Journal of Machine Learning Research}, 15, 1593--1623.
+
+\bibitem{vehtarietal2017}
+Vehtari, A., Gelman, A., and Gabry, J. (2017).
+Practical Bayesian model evaluation using leave-one-out cross-validation and WAIC.
+\emph{Statistics and Computing}, 27, 1413--1432.
+\url{https://doi.org/10.1007/s11222-016-9696-4}
+\end{thebibliography}
+\endgroup
+
+\end{document}
