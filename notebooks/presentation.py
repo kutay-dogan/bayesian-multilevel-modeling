@@ -669,29 +669,6 @@ def _(mo):
     return
 
 
-@app.cell
-def _(mo):
-    nh_sigma = mo.ui.slider(0.5, 5, step=0.25, value=2, label="Within-group SD $\\sigma$", show_value=True)
-    nh_tau = mo.ui.slider(0.05, 3, step=0.05, value=0.5, label="Between-group SD $\\tau$", show_value=True)
-    return nh_sigma, nh_tau
-
-
-@app.cell(hide_code=True)
-def _(C_PART, alt, mo, nh_sigma, nh_tau, np, pl):
-    _ratio = nh_sigma.value**2 / nh_tau.value**2
-    _ns = np.unique(np.round(np.logspace(0, 3, 150)).astype(int))
-    _df = pl.DataFrame({"n": _ns, "w": _ns / (_ns + _ratio)})
-    _chart = alt.Chart(_df).mark_line(color=C_PART, strokeWidth=2.2).encode(
-        x=alt.X("n:Q", scale=alt.Scale(type="log"), title="Observations in the group n_j (log scale)"),
-        y=alt.Y("w:Q", title="Weight on own group mean w_j", scale=alt.Scale(domain=[0, 1])),
-        tooltip=["n", alt.Tooltip("w:Q", format=".3f")],
-    ).properties(width=420, height=230, title="Groups need about σ²/τ² observations to get w = 0.5")
-    mo.vstack([mo.hstack([nh_sigma, nh_tau], justify="start", gap=2), mo.hstack([_chart, mo.md(
-        f"- σ²/τ² = **{_ratio:.1f}**\n- Raise τ → groups differ more → less shrinkage\n- Raise σ → noisier data → more shrinkage")],
-        align="center", justify="start", gap=2)])
-    return
-
-
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
@@ -716,87 +693,7 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### 6.3 Movie-level predictors and varying slopes
-
-    $$
-    a_j\sim\mathcal N(\gamma_0+\gamma_1 d_j+\gamma_2 g_j,\ \tau_a^2)
-    $$
-
-    - $d_j$: standardised duration, $g_j$: genre indicator → shrink toward a **conditional** mean
-    - Reviewer effect $r_u\sim\mathcal N(0,\tau_r^2)$ can be added → approval net of each reviewer's tendency
-
-    $$
-    \operatorname{logit}(p_{ij})=a_j+b_j x_{ij},\qquad
-    \begin{pmatrix}a_j\\ b_j\end{pmatrix}\sim\mathcal N_2\!\left(
-    \begin{pmatrix}\mu_a\\ \mu_b\end{pmatrix},
-    \begin{pmatrix}\tau_a^2 & \rho\tau_a\tau_b\\ \rho\tau_a\tau_b & \tau_b^2\end{pmatrix}\right)
-    $$
-
-    - $b_j$: movie-specific effect of the viewer predictor
-    - $\tau_a,\tau_b$: spread of intercepts / slopes · $\rho$: their correlation
-    - Priors on $\mu_a,\mu_b,\tau_a,\tau_b,\rho$: mild, keep values plausible (half-normal on SDs, LKJ on correlation)
-    """)
-    return
-
-
-@app.cell
-def _(mo):
-    vs_mua = mo.ui.slider(-1, 2, step=0.1, value=0.8, label="$\\mu_a$", show_value=True)
-    vs_mub = mo.ui.slider(-1, 2, step=0.1, value=0.7, label="$\\mu_b$", show_value=True)
-    vs_taua = mo.ui.slider(0.0, 1.5, step=0.05, value=0.7, label="$\\tau_a$", show_value=True)
-    vs_taub = mo.ui.slider(0.0, 1.0, step=0.05, value=0.4, label="$\\tau_b$", show_value=True)
-    vs_rho = mo.ui.slider(-0.9, 0.9, step=0.1, value=-0.4, label="$\\rho$", show_value=True)
-    return vs_mua, vs_mub, vs_rho, vs_taua, vs_taub
-
-
-@app.cell(hide_code=True)
-def _(
-    C_INK,
-    C_PART,
-    alt,
-    mo,
-    np,
-    pl,
-    vs_mua,
-    vs_mub,
-    vs_rho,
-    vs_taua,
-    vs_taub,
-):
-    _ta, _tb, _r = vs_taua.value, vs_taub.value, vs_rho.value
-    _S = np.array([[_ta**2, _r * _ta * _tb], [_r * _ta * _tb, _tb**2]])
-    _ab = np.random.default_rng(7).multivariate_normal([vs_mua.value, vs_mub.value], _S, size=25)
-    _xs = np.linspace(-2.5, 2.5, 60)
-    _curves = pl.DataFrame([(j, x, 1 / (1 + np.exp(-(a + b * x)))) for j, (a, b) in enumerate(_ab) for x in _xs],
-                           schema=["movie", "x", "p"], orient="row")
-    _popc = pl.DataFrame({"x": _xs, "p": 1 / (1 + np.exp(-(vs_mua.value + vs_mub.value * _xs)))})
-    _c1 = (
-        alt.Chart(_curves).mark_line(color=C_PART, opacity=0.35).encode(
-            x=alt.X("x:Q", title="Viewer preference x (centred)"), y=alt.Y("p:Q", title="P(like)", scale=alt.Scale(domain=[0, 1])),
-            detail="movie:N")
-        + alt.Chart(_popc).mark_line(color=C_INK, strokeWidth=3).encode(x="x:Q", y="p:Q")
-    ).properties(width=320, height=240, title="25 movies drawn from the population")
-    _pts = pl.DataFrame({"a": _ab[:, 0], "b": _ab[:, 1]})
-    _c2 = (
-        alt.Chart(_pts).mark_point(filled=True, color=C_PART, size=50).encode(
-            x=alt.X("a:Q", title="Intercept a_j", scale=alt.Scale(domain=[-2, 3.5])),
-            y=alt.Y("b:Q", title="Slope b_j", scale=alt.Scale(domain=[-1.5, 3])))
-        + alt.Chart(pl.DataFrame({"a": [vs_mua.value], "b": [vs_mub.value]})).mark_point(
-            shape="cross", size=200, color=C_INK, filled=True).encode(x="a:Q", y="b:Q")
-    ).properties(width=260, height=240, title="Their (a_j, b_j)")
-    mo.vstack([
-        mo.hstack([vs_mua, vs_mub, vs_rho], justify="start", gap=2),
-        mo.hstack([vs_taua, vs_taub], justify="start", gap=2),
-        mo.hstack([_c1, _c2], justify="start", gap=2),
-        mo.md("τ = 0 → all movies share the black curve (complete pooling) · large τ → very different movies · ρ < 0 → high-baseline movies have flatter slopes"),
-    ])
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ### 6.4 A simulated multilevel regression example
+    ### 6.3 A simulated multilevel regression example
 
     Settings of the report (seed 2026): $J=24$ movies, 5–346 votes, $\mu_a=0.8$, $\mu_b=0.7$, $\tau_a=0.7$, $\tau_b=0.4$, $\rho=-0.4$.
 
@@ -1019,29 +916,7 @@ def _(
 def _(mo):
     mo.md(r"""
     ---
-    ## 7. Posterior Computation and Assessment
-
-    - Beta–binomial with fixed $\alpha,\beta$: closed form
-    - Gamma hyperpriors: no closed form → grid over $(\alpha,\beta)$ or MCMC
-    - Hierarchical logistic regression: Hamiltonian Monte Carlo / NUTS
-
-    $$
-    q_j\sim\mathcal N(0,1),\qquad a_j=\mu_a+\tau_a q_j
-    $$
-
-    - Non-centred form: sample the standardised $q_j$, then scale by $\tau_a$ and shift by $\mu_a$ → easier geometry when groups carry little information
-    - Check: several chains, $\hat R\approx1$, effective sample size, **no divergences**
-    - Convergence ≠ correct model → posterior predictive checks, leave-one-out cross-validation
-    - Leave out single votes → known movies · leave out whole movies → new titles
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ---
-    ## 8. Limitations and Discussion
+    ## 7. Limitations and Discussion
 
     - Like/dislike discards rating intensity → ordinal hierarchical model possible
     - Votes not truly independent: self-selection, advertising, campaigns
@@ -1051,7 +926,7 @@ def _(mo):
     - Hierarchy = relation of parameters · partial pooling = information sharing · shrinkage = resulting adjustment
 
     ---
-    ## 9. Conclusion
+    ## 8. Conclusion
 
     - Each estimate = compromise between the movie's own data and the population
     - Few votes → strong shrinkage · many votes → almost none
