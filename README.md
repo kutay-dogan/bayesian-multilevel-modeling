@@ -25,7 +25,7 @@ pixi install
 Launch the notebook in presentation (app) mode:
 
 ```bash
-pixi run present
+pixi run marimo run notebooks/presentation.py
 ```
 
 To open the notebook in edit mode:
@@ -53,8 +53,6 @@ Or open the notebook in edit mode:
 ```bash
 marimo edit notebooks/presentation.py
 ```
-
-Exit the environment using `exit`.
 
 ## Interactive Presentation
 
