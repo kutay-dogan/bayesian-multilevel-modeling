@@ -4,6 +4,7 @@ __generated_with = "0.25.2"
 app = marimo.App(
     width="medium",
     app_title="Hierarchical Bayesian Models and Partial Pooling II",
+    layout_file="layouts/presentation.slides.json",
 )
 
 
